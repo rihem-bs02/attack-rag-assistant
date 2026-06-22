@@ -1,0 +1,21 @@
+# Environments
+.env
+.venv
+env/
+venv/
+
+# Cache and Vector Stores
+vector_store/
+fastembed_cache/
+hf_cache/
+rag_output/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# IDEs
+.idea/
+.vscode/
+*.swp
+.DS_Store

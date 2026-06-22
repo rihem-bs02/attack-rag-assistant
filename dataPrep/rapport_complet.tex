@@ -1,0 +1,1259 @@
+\documentclass[12pt,a4paper]{report}
+
+% ============================================================
+% PACKAGES
+% ============================================================
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage{geometry}
+\usepackage{setspace}
+\usepackage{hyperref}
+\usepackage{graphicx}
+\usepackage{float}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{array}
+\usepackage{xcolor}
+\usepackage{listings}
+\usepackage{caption}
+\usepackage{enumitem}
+\usepackage{tabularx}
+\usepackage{tcolorbox}
+\usepackage{multirow}
+\usepackage{amsmath}
+
+\geometry{margin=2.5cm}
+\onehalfspacing
+
+\hypersetup{
+    colorlinks=true,
+    linkcolor=blue,
+    urlcolor=blue,
+    citecolor=blue
+}
+
+% ============================================================
+% MACROS
+% ============================================================
+
+\newcommand{\ATTACK}{MITRE ATT\&CK}
+
+% ============================================================
+% CODE LISTING STYLE
+% ============================================================
+
+\definecolor{codegray}{gray}{0.95}
+\definecolor{codeblue}{rgb}{0.1,0.1,0.55}
+\definecolor{codegreen}{rgb}{0.0,0.45,0.0}
+\definecolor{codered}{rgb}{0.65,0.05,0.05}
+
+\lstdefinestyle{pythonstyle}{
+    backgroundcolor=\color{codegray},
+    basicstyle=\ttfamily\small,
+    keywordstyle=\color{codeblue}\bfseries,
+    commentstyle=\color{codegreen},
+    stringstyle=\color{codered},
+    breaklines=true,
+    frame=single,
+    showstringspaces=false,
+    tabsize=4,
+    captionpos=b
+}
+
+\lstdefinestyle{bashstyle}{
+    backgroundcolor=\color{codegray},
+    basicstyle=\ttfamily\small,
+    breaklines=true,
+    frame=single,
+    showstringspaces=false,
+    tabsize=4,
+    captionpos=b
+}
+
+% ============================================================
+% TITLE
+% ============================================================
+
+\title{
+    \textbf{Development of a Local RAG Chatbot for \ATTACK}\\
+    \large Data Preparation, Vector Indexing, Professional UI Design,\\
+    Groq API Integration, Local Ollama Inference, and Comparative Analysis
+}
+
+\author{
+    Rihem\\
+    Internship Project
+}
+
+\date{\today}
+
+\begin{document}
+
+\maketitle
+
+\tableofcontents
+\listoftables
+\listoffigures
+
+% ============================================================
+% ABSTRACT
+% ============================================================
+
+\chapter*{Abstract}
+\addcontentsline{toc}{chapter}{Abstract}
+
+This report presents the complete development process of a Retrieval-Augmented Generation (RAG) system dedicated to the \ATTACK{} Enterprise knowledge base. The objective was to build a chatbot capable of answering questions about adversary techniques, tactics, kill-chain phases, tools, malware, intrusion groups, campaigns, mitigations, and detection strategies.
+
+The project started with the installation and analysis of the official \ATTACK{} STIX dataset. The raw STIX graph was validated, filtered, and transformed into an enriched JSONL corpus of 4,370 active documents. This corpus was embedded using a local FastEmbed model and indexed in a local Qdrant vector database. A series of progressively improved Gradio interfaces were then developed, culminating in a professional dark-mode application (\texttt{app6.py}).
+
+Two language model backends were integrated and compared in depth. The Groq cloud API was tested with models including \texttt{llama-3.3-70b-versatile} and \texttt{qwen/qwen3-32b}. However, due to strict HTTP payload limits, model deprecation issues, internet dependency, and data privacy concerns, local Ollama inference using \texttt{llama3.2:3b} and \texttt{qwen2.5:7b-instruct} proved to be the clearly superior solution for this application. The final system operates entirely locally, with no mandatory internet connection or paid API subscription.
+
+% ============================================================
+% GENERAL INTRODUCTION
+% ============================================================
+
+\chapter*{General Introduction}
+\addcontentsline{toc}{chapter}{General Introduction}
+
+Cybersecurity knowledge bases are often large, graph-based, and difficult to query directly using natural language. \ATTACK{} is a reference framework for describing adversary behavior through tactics, techniques, sub-techniques, tools, malware, campaigns, groups, mitigations, and detections. However, the original \ATTACK{} data is distributed as STIX JSON, which is not directly optimized for chatbot-based question answering.
+
+Retrieval-Augmented Generation (RAG) is a suitable architecture for this type of problem. In a RAG system, a user question is first used to retrieve relevant documents from a knowledge base. The retrieved documents are then passed as context to a language model. This allows the system to produce answers grounded in external data rather than relying only on the model's internal knowledge.
+
+The implemented system follows this complete pipeline:
+
+\begin{enumerate}
+    \item Download the \ATTACK{} STIX dataset.
+    \item Analyze and validate the raw STIX bundle.
+    \item Convert the STIX graph into an enriched JSONL corpus.
+    \item Validate the enriched RAG corpus.
+    \item Embed the corpus using a local embedding model.
+    \item Store vectors and payloads in a local Qdrant database.
+    \item Build and iteratively improve a Gradio chatbot interface.
+    \item Develop a professional dark-mode UI design.
+    \item Integrate the Groq cloud API as an alternative generation backend.
+    \item Engineer the system prompt for structured answers.
+    \item Compare cloud API inference versus local Ollama inference.
+    \item Conclude with recommendations for production deployment.
+\end{enumerate}
+
+% ============================================================
+% CHAPTER 1
+% ============================================================
+
+\chapter{Data Installation and Preparation}
+
+\section{Objective}
+
+The objective of the first phase was to obtain a reliable and clean \ATTACK{} dataset suitable for a RAG chatbot. The raw \ATTACK{} data is not a set of independent text files. It is a STIX graph composed of objects and relationships. Therefore, the system needed to extract useful objects, remove deprecated data, preserve relationships, and convert everything into readable documents.
+
+\section{Repository Installation}
+
+The official \ATTACK{} STIX data repository was downloaded locally using Git:
+
+\begin{lstlisting}[style=bashstyle]
+git clone https://github.com/mitre-attack/attack-stix-data.git
+\end{lstlisting}
+
+The relevant file for the Enterprise domain is:
+
+\begin{lstlisting}[style=bashstyle]
+attack-stix-data/enterprise-attack/enterprise-attack.json
+\end{lstlisting}
+
+This file contains the full Enterprise \ATTACK{} STIX bundle.
+
+\section{Raw STIX Bundle Analysis}
+
+The raw STIX file was analyzed to understand its structure and check whether it was complete and valid. The bundle contained 25,843 STIX objects.
+
+\begin{table}[H]
+\centering
+\begin{tabular}{ll}
+\toprule
+\textbf{Property} & \textbf{Value} \\
+\midrule
+File & \texttt{enterprise-attack.json} \\
+Bundle type & \texttt{bundle} \\
+Object count & 25,843 \\
+Broken relationships & 0 \\
+\bottomrule
+\end{tabular}
+\caption{Raw STIX bundle summary}
+\end{table}
+
+The result \texttt{Broken relationships = 0} is important because it confirms that the STIX graph is internally consistent.
+
+\section{STIX Object Types}
+
+The raw bundle contained the following STIX object types:
+
+\begin{longtable}{lr}
+\toprule
+\textbf{STIX Object Type} & \textbf{Count} \\
+\midrule
+\endhead
+relationship & 21,025 \\
+x-mitre-analytic & 1,758 \\
+attack-pattern & 858 \\
+malware & 729 \\
+x-mitre-detection-strategy & 699 \\
+course-of-action & 268 \\
+intrusion-set & 189 \\
+x-mitre-data-component & 109 \\
+tool & 95 \\
+campaign & 56 \\
+x-mitre-data-source & 38 \\
+x-mitre-tactic & 15 \\
+x-mitre-collection & 1 \\
+x-mitre-matrix & 1 \\
+identity & 1 \\
+marking-definition & 1 \\
+\bottomrule
+\caption{STIX object types in the raw Enterprise \ATTACK{} bundle}
+\end{longtable}
+
+\section{Technique and Tactic Analysis}
+
+Techniques and sub-techniques are represented by \texttt{attack-pattern} objects. After removing deprecated and revoked objects, 697 active techniques and sub-techniques remained.
+
+\begin{table}[H]
+\centering
+\begin{tabular}{lr}
+\toprule
+\textbf{Metric} & \textbf{Count} \\
+\midrule
+All attack-pattern objects & 858 \\
+Active techniques and sub-techniques & 697 \\
+Active parent techniques & 222 \\
+Active sub-techniques & 475 \\
+Techniques without tactic & 0 \\
+\bottomrule
+\end{tabular}
+\caption{Technique and sub-technique statistics}
+\end{table}
+
+\section{Technique Distribution by Tactic}
+
+\begin{longtable}{lr}
+\toprule
+\textbf{Tactic / Kill-Chain Phase} & \textbf{Technique Count} \\
+\midrule
+\endhead
+stealth & 148 \\
+persistence & 113 \\
+privilege-escalation & 96 \\
+credential-access & 67 \\
+execution & 64 \\
+defense-impairment & 56 \\
+resource-development & 50 \\
+discovery & 49 \\
+reconnaissance & 46 \\
+command-and-control & 45 \\
+collection & 41 \\
+impact & 33 \\
+lateral-movement & 23 \\
+initial-access & 22 \\
+exfiltration & 19 \\
+\bottomrule
+\caption{Active techniques by \ATTACK{} tactic}
+\end{longtable}
+
+\section{Technique Distribution by Platform}
+
+\begin{longtable}{lr}
+\toprule
+\textbf{Platform} & \textbf{Technique Count} \\
+\midrule
+\endhead
+Windows & 474 \\
+macOS & 356 \\
+Linux & 355 \\
+ESXi & 117 \\
+IaaS & 104 \\
+Network Devices & 100 \\
+PRE & 96 \\
+Office Suite & 78 \\
+SaaS & 70 \\
+Identity Provider & 48 \\
+Containers & 48 \\
+\bottomrule
+\caption{Active techniques by platform}
+\end{longtable}
+
+\section{Relationship Analysis}
+
+\begin{longtable}{lr}
+\toprule
+\textbf{Relationship Type} & \textbf{Count} \\
+\midrule
+\endhead
+uses & 18,220 \\
+mitigates & 1,448 \\
+detects & 697 \\
+subtechnique-of & 477 \\
+revoked-by & 157 \\
+attributed-to & 26 \\
+\bottomrule
+\caption{Relationship types in the STIX graph}
+\end{longtable}
+
+The relationships were transformed into readable enrichment fields. For example, a technique document includes the groups, malware, tools, campaigns, mitigations, and detection strategies related to that technique.
+
+\section{Handling Deprecated and Revoked Objects}
+
+Deprecated and revoked objects were excluded from the RAG corpus to avoid stale or misleading answers. The system uses \texttt{stix\_id} as the primary unique identifier and \texttt{object\_type + attack\_id} as a secondary lookup key.
+
+% ============================================================
+% CHAPTER 2
+% ============================================================
+
+\chapter{Construction of the Enriched JSONL RAG Corpus}
+
+\section{Objective}
+
+The second phase converted the raw STIX graph into an enriched JSONL corpus. JSONL was selected because each line can represent one independent RAG document.
+
+\section{Document Structure}
+
+Each enriched document contains structured metadata and a dedicated text field for embedding:
+
+\begin{lstlisting}[style=pythonstyle]
+{
+    "doc_id": "attack-pattern--...",
+    "stix_id": "attack-pattern--...",
+    "object_type": "attack-pattern",
+    "attack_id": "T1059",
+    "name": "Command and Scripting Interpreter",
+    "status": "active",
+    "tactics": ["execution"],
+    "platforms": ["Windows", "Linux", "macOS"],
+    "description": "...",
+    "related": {
+        "used_by_groups": [],
+        "used_by_malware": [],
+        "used_by_tools": [],
+        "mitigations": [],
+        "detection_strategies": []
+    },
+    "text_for_embedding": "MITRE ATT&CK attack-pattern: T1059 ..."
+}
+\end{lstlisting}
+
+Only \texttt{text\_for\_embedding} is embedded into the vector database. The full JSON document is stored as payload metadata.
+
+\section{Final Corpus Statistics}
+
+The enriched corpus contains 4,370 active documents.
+
+\begin{longtable}{lr}
+\toprule
+\textbf{Document Type} & \textbf{Count} \\
+\midrule
+\endhead
+x-mitre-analytic & 1,758 \\
+malware & 726 \\
+attack-pattern & 697 \\
+x-mitre-detection-strategy & 697 \\
+intrusion-set & 174 \\
+x-mitre-data-component & 106 \\
+tool & 95 \\
+campaign & 56 \\
+course-of-action & 44 \\
+x-mitre-tactic & 15 \\
+x-mitre-collection & 1 \\
+x-mitre-matrix & 1 \\
+\textbf{Total} & \textbf{4,370} \\
+\bottomrule
+\caption{Final enriched RAG corpus by object type}
+\end{longtable}
+
+\section{Corpus Validation}
+
+The corpus passed the following validation checks: no duplicate identifiers, no deprecated or revoked documents, no empty embedding texts, and no structural problems in relationship fields.
+
+\begin{table}[H]
+\centering
+\begin{tabular}{lr}
+\toprule
+\textbf{Metric} & \textbf{Value} \\
+\midrule
+Minimum characters & 312 \\
+Median characters & 621 \\
+Mean characters & 1,128 \\
+Maximum characters & 9,272 \\
+Maximum estimated tokens & 2,318 \\
+\bottomrule
+\end{tabular}
+\caption{Embedding text length statistics}
+\end{table}
+
+No chunking was required because the maximum document size remained acceptable for the chosen embedding model.
+
+% ============================================================
+% CHAPTER 3
+% ============================================================
+
+\chapter{Vector Indexing with Qdrant and FastEmbed}
+
+\section{Objective}
+
+The third phase created a vector index from the enriched JSONL corpus to enable semantic document retrieval based on natural language queries.
+
+\section{Selected Technologies}
+
+\begin{itemize}
+    \item FastEmbed for local text embedding;
+    \item \texttt{BAAI/bge-small-en-v1.5} as the embedding model;
+    \item Qdrant local mode as the vector database;
+    \item cosine distance as the similarity metric.
+\end{itemize}
+
+\section{Payload Design}
+
+Each Qdrant point contains both a 384-dimensional vector and a payload:
+
+\begin{lstlisting}[style=pythonstyle]
+{
+    "row_id": row_id,
+    "doc_id": doc.get("doc_id"),
+    "stix_id": doc.get("stix_id"),
+    "object_type": doc.get("object_type"),
+    "attack_id": doc.get("attack_id"),
+    "name": doc.get("name"),
+    "status": doc.get("status"),
+    "tactics": doc.get("tactics"),
+    "platforms": doc.get("platforms"),
+    "url": doc.get("url"),
+    "text_for_embedding": doc.get("text_for_embedding"),
+    "full_doc": doc
+}
+\end{lstlisting}
+
+\section{Indexing Results}
+
+\begin{table}[H]
+\centering
+\begin{tabular}{ll}
+\toprule
+\textbf{Metric} & \textbf{Value} \\
+\midrule
+Collection name & \texttt{mitre\_attack\_enterprise} \\
+Qdrant path & \texttt{vector\_store/qdrant\_attack\_enterprise} \\
+Embedding model & \texttt{BAAI/bge-small-en-v1.5} \\
+Vector size & 384 \\
+Points count & 4,370 \\
+Expected documents & 4,370 \\
+Status & green \\
+\bottomrule
+\end{tabular}
+\caption{Vector index summary}
+\end{table}
+
+\section{Retrieval Tests}
+
+\subsection{T1059 Query}
+
+\begin{longtable}{lllr}
+\toprule
+\textbf{ATT\&CK ID} & \textbf{Name} & \textbf{Object Type} & \textbf{Score} \\
+\midrule
+\endhead
+T1059.001 & PowerShell & attack-pattern & 0.7516 \\
+T1059 & Command and Scripting Interpreter & attack-pattern & 0.7388 \\
+T1059.003 & Windows Command Shell & attack-pattern & 0.7069 \\
+T1059.008 & Network Device CLI & attack-pattern & 0.6909 \\
+T1059.004 & Unix Shell & attack-pattern & 0.6891 \\
+\bottomrule
+\caption{Retrieval results for T1059 query}
+\end{longtable}
+
+\subsection{Mimikatz Query}
+
+\begin{longtable}{lllr}
+\toprule
+\textbf{ATT\&CK ID} & \textbf{Name} & \textbf{Object Type} & \textbf{Score} \\
+\midrule
+\endhead
+S0002 & Mimikatz & tool & 0.7266 \\
+T1003.001 & LSASS Memory & attack-pattern & 0.7216 \\
+S0121 & Lslsass & tool & 0.7004 \\
+S0005 & Windows Credential Editor & tool & 0.6998 \\
+T1003 & OS Credential Dumping & attack-pattern & 0.6979 \\
+\bottomrule
+\caption{Retrieval results for Mimikatz query}
+\end{longtable}
+
+% ============================================================
+% CHAPTER 4
+% ============================================================
+
+\chapter{Gradio Chatbot Interface -- Initial Versions}
+
+\section{Objective}
+
+The fourth phase built a local web interface using Gradio to allow users to ask natural language questions and receive answers grounded in the retrieved \ATTACK{} context.
+
+\section{Gradio Compatibility Problems}
+
+The first design used \texttt{gr.Chatbot(type="messages")} which caused:
+
+\begin{lstlisting}[style=bashstyle]
+TypeError: Chatbot.__init__() got an unexpected keyword argument 'type'
+\end{lstlisting}
+
+A second error with \texttt{gr.State} caused:
+
+\begin{lstlisting}[style=bashstyle]
+KeyError: 0
+\end{lstlisting}
+
+To resolve these version-specific problems, the final design uses:
+
+\begin{itemize}
+    \item \texttt{gr.Markdown} for conversation display;
+    \item a hidden \texttt{gr.Textbox} for serialized JSON chat history;
+    \item \texttt{gr.Dataframe} for retrieved document display;
+    \item simple non-streaming function calls compatible with all Gradio versions.
+\end{itemize}
+
+\section{xAI Grok API Test}
+
+The first LLM generation layer was attempted using the xAI Grok API. The request failed with:
+
+\begin{lstlisting}[style=bashstyle]
+403 permission-denied
+Your newly created team doesn't have any credits or licenses yet.
+\end{lstlisting}
+
+The API key was valid but the account had no active credits. The local RAG system was working correctly. Because cloud inference was blocked by billing, the system was migrated to local Ollama inference.
+
+% ============================================================
+% CHAPTER 5
+% ============================================================
+
+\chapter{Professional Dark Mode UI -- app5.py and app6.py}
+
+\section{Objective}
+
+After validating the core RAG pipeline with basic Gradio layouts, the interface was redesigned to a professional level. Two major UI versions were produced: \texttt{app5.py} and \texttt{app6.py}. Table~\ref{tab:versions} summarizes the full evolution.
+
+\begin{table}[H]
+\centering
+\begin{tabularx}{\textwidth}{lX}
+\toprule
+\textbf{Version} & \textbf{Key Changes} \\
+\midrule
+\texttt{app.py} & First working RAG chatbot with basic Gradio layout \\
+\texttt{app2.py} & Added Top-K slider, tactic and platform filter dropdowns \\
+\texttt{app3.py} & Added Retrieve ALL scroll mode for full 4,370-document collection \\
+\texttt{app4.py} & Improved system prompt with offensive/defensive intent detection \\
+\texttt{app5.py} & Full dark mode design with GitHub-inspired color palette \\
+\texttt{app6.py} & Professional zinc-black palette, Groq API integration, prompt restructuring, anti-preamble fix \\
+\bottomrule
+\end{tabularx}
+\caption{Application version evolution}
+\label{tab:versions}
+\end{table}
+
+\section{Design Philosophy}
+
+\subsection{app5.py -- GitHub Dark Palette}
+
+The first dark mode interface used a GitHub-inspired palette:
+
+\begin{itemize}
+    \item Background: \texttt{\#0d1117} (near-black);
+    \item Panel surfaces: \texttt{\#161b22};
+    \item Borders: \texttt{\#30363d};
+    \item Primary accent: \texttt{\#58a6ff} (GitHub blue);
+    \item Text: \texttt{\#e6edf3}.
+\end{itemize}
+
+\subsection{app6.py -- Professional Zinc Palette}
+
+The final version uses a more refined zinc-black design with:
+
+\begin{itemize}
+    \item Background: \texttt{\#09090b} (deep zinc black);
+    \item Panel surfaces: \texttt{\#18181b} and \texttt{\#121214};
+    \item Borders: \texttt{\#27272a} and \texttt{\#3f3f46};
+    \item Primary button: indigo-to-violet gradient (\texttt{\#4f46e5} to \texttt{\#7c3aed}) with a \texttt{4px} glow shadow;
+    \item Header: a gradient banner with a 2px three-color top border (blue, purple, pink);
+    \item Body text: soft \texttt{\#d4d4d8} applied to paragraphs, list items, divs, and spans to avoid eye strain;
+    \item Code blocks: near-black background with mint green syntax;
+    \item Typography: Inter / Segoe UI font stack.
+\end{itemize}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.95\textwidth]{screenshots/app6_main_interface.png}
+    \caption{\texttt{app6.py} main interface -- professional zinc dark mode}
+    \label{fig:app6_main}
+\end{figure}
+
+\section{Interface Layout}
+
+The interface is divided into two columns, as shown in Figure~\ref{fig:app6_layout}.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.95\textwidth]{screenshots/app6_layout.png}
+    \caption{Two-column layout: conversation panel on the left, settings panel on the right}
+    \label{fig:app6_layout}
+\end{figure}
+
+\subsection{Left Column -- Conversation}
+
+\begin{itemize}
+    \item Scrollable conversation Markdown panel with inset shadow;
+    \item Multi-line question input with indigo focus glow;
+    \item Primary \textbf{Ask} button (indigo gradient, elevation on hover);
+    \item Secondary \textbf{Clear} button;
+    \item \textbf{Offensive} example buttons (red-border theme): Brute Force SSH, Nmap Scan, Metasploit, Mimikatz Dump, SQLmap, T1059 Scripting;
+    \item \textbf{Defensive} example buttons (blue-border theme): Detect Lateral Movement, Defense Evasion, Credential Access, Initial Access.
+\end{itemize}
+
+\subsection{Right Column -- Settings Panel}
+
+\begin{itemize}
+    \item AI Model dropdown showing both local Ollama models and Groq cloud models;
+    \item Retrieve ALL checkbox to scroll the entire 4,370-document collection;
+    \item Top-K slider for semantic search mode;
+    \item Object Type, Tactic, and Platform filter dropdowns;
+    \item Temperature, Max Output Tokens, and Context Window sliders;
+    \item App Health accordion showing startup logs and Qdrant status.
+\end{itemize}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.58\textwidth]{screenshots/app6_settings_panel.png}
+    \caption{Settings panel with AI model selector and retrieval controls}
+    \label{fig:app6_settings}
+\end{figure}
+
+\section{Retrieved Documents Table}
+
+After each query, a Dataframe shows the \ATTACK{} documents used to generate the answer, providing full transparency about retrieval quality.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.95\textwidth]{screenshots/app6_retrieved_table.png}
+    \caption{Retrieved documents table showing ATT\&CK IDs, names, types, and similarity scores}
+    \label{fig:app6_table}
+\end{figure}
+
+% ============================================================
+% CHAPTER 6
+% ============================================================
+
+\chapter{Groq Cloud API Integration}
+
+\section{Overview}
+
+After establishing the local Ollama pipeline, the Groq cloud API was integrated as an optional second backend. Groq provides Language Processing Units (LPUs), specialized chips designed for sequential token generation. These offer much lower latency than GPU-based cloud providers for the same model size.
+
+\section{Configuration}
+
+The Groq API uses an OpenAI-compatible endpoint:
+
+\begin{lstlisting}[style=pythonstyle]
+GROQ_API_KEY  = "gsk_..."
+GROQ_CHAT_URL = "https://api.groq.com/openai/v1/chat/completions"
+GROQ_MODELS   = [
+    "Groq: llama-3.1-8b-instant",
+    "Groq: llama-3.3-70b-versatile",
+    "Groq: qwen/qwen3-32b",
+    "Groq: qwen/qwen3.6-27b"
+]
+\end{lstlisting}
+
+The \texttt{Groq:} prefix in each model name allows the application to detect at runtime whether to call the Groq API or the local Ollama server.
+
+\section{Request Routing}
+
+\begin{lstlisting}[style=pythonstyle]
+if model_name.startswith("Groq:"):
+    groq_model = model_name.replace("Groq: ", "").strip()
+    payload = {
+        "model": groq_model,
+        "messages": messages,
+        "temperature": float(temperature),
+        "max_tokens": int(max_tokens),
+    }
+    headers = {
+        "Authorization": f"Bearer {GROQ_API_KEY}",
+        "Content-Type": "application/json"
+    }
+    r = requests.post(GROQ_CHAT_URL, json=payload,
+                      headers=headers, timeout=60)
+    r.raise_for_status()
+    return r.json()["choices"][0]["message"]["content"].strip()
+\end{lstlisting}
+
+\section{Problems Encountered}
+
+Three distinct problems were encountered during Groq API integration.
+
+\subsection{Decommissioned Models}
+
+The first four models selected for integration had all been decommissioned by Groq by the time of testing:
+
+\begin{lstlisting}[style=bashstyle]
+400 Bad Request
+model_decommissioned: The model 'llama3-70b-8192' has been
+decommissioned. See https://console.groq.com/docs/deprecations
+\end{lstlisting}
+
+Models affected: \texttt{llama3-70b-8192}, \texttt{llama3-8b-8192}, \texttt{mixtral-8x7b-32768}, \texttt{gemma2-9b-it}. The Groq models API was queried to obtain the current active list, and the configuration was updated.
+
+\subsection{Payload Too Large}
+
+When the chatbot operates in Retrieve ALL mode, it scrolls the entire 4,370-document collection and generates approximately 5.7 million characters of context. This caused:
+
+\begin{lstlisting}[style=bashstyle]
+413 Client Error: Payload Too Large
+\end{lstlisting}
+
+The solution applies hard limits before sending context to Groq:
+
+\begin{table}[H]
+\centering
+\begin{tabular}{ll}
+\toprule
+\textbf{Limit Applied for Groq} & \textbf{Value} \\
+\midrule
+Maximum characters per document & 400 \\
+Maximum total context string & 6,000 characters \\
+\bottomrule
+\end{tabular}
+\caption{Context truncation limits applied for Groq API requests}
+\end{table}
+
+\subsection{Generic Preamble Responses}
+
+Even after fixing context size, some models returned generic introductory text:
+
+\begin{quote}
+\textit{``I can provide information and answer questions based on the retrieved context. However, I need to clarify that I will be answering within the scope of the provided documents...''}
+\end{quote}
+
+This was resolved through prompt restructuring, described in the following chapter.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.52\textwidth]{screenshots/app6_model_dropdown.png}
+    \caption{AI Model dropdown showing local Ollama models and Groq cloud models}
+    \label{fig:model_dropdown}
+\end{figure}
+
+% ============================================================
+% CHAPTER 7
+% ============================================================
+
+\chapter{Prompt Engineering and Answer Structure}
+
+\section{System Prompt Design}
+
+The system prompt is the most important element for answer quality. The final prompt instructs the model to:
+
+\begin{itemize}
+    \item answer exclusively from retrieved \ATTACK{} context;
+    \item use precise ATT\&CK terminology (technique IDs, tactic names);
+    \item provide offensive practical commands when the user requests simulation;
+    \item provide defensive detection guidance when the user requests monitoring;
+    \item follow a strict mandatory answer structure.
+\end{itemize}
+
+\section{Mandatory Answer Structure}
+
+\begin{tcolorbox}[colback=codegray, colframe=codeblue, title=Mandatory Answer Structure -- Enforced by System Prompt]
+\textbf{\#\# Full Vision \& Explanation}\\
+Start with a comprehensive theoretical overview. Explain the ``what'' and ``why'' clearly \emph{before} the ``how''.
+
+\medskip
+\textbf{\#\# ATT\&CK Mapping}\\
+Cite precise technique IDs (e.g., T1059.001), tactic phases, and object types.
+
+\medskip
+\textbf{\#\# Practical Commands}\\
+Real CLI examples in fenced bash/PowerShell code blocks for offensive queries.
+
+\medskip
+\textbf{\#\# Defensive Commands \& Detection}\\
+Windows Event IDs, Sysmon events, Splunk SPL queries, Snort/Suricata rules, hardening commands.
+
+\medskip
+\textbf{\#\# Mitigations}\\
+ATT\&CK course-of-action mitigations relevant to the retrieved context.
+\end{tcolorbox}
+
+\section{Intent Detection}
+
+The application automatically detects whether a question is offensive or defensive:
+
+\begin{lstlisting}[style=pythonstyle]
+OFFENSIVE_KEYWORDS = {
+    "how to", "exploit", "attack", "simulate", "nmap",
+    "metasploit", "hydra", "mimikatz", "sqlmap", "crack",
+    "brute force", "reverse shell", "payload", "enumerate", ...
+}
+
+DEFENSIVE_KEYWORDS = {
+    "detect", "defense", "mitigation", "monitor", "splunk",
+    "siem", "firewall", "ids", "yara", "sigma", "harden", ...
+}
+\end{lstlisting}
+
+When offensive intent is detected, an additional hint is injected: \textit{``Provide a thorough Full Vision \& Explanation first, then Practical Commands with real CLI examples.''}
+
+\section{Anti-Preamble Prompt Engineering}
+
+\subsection{The Problem}
+
+During testing, both local and cloud models occasionally produced generic introductory text instead of a direct answer:
+
+\begin{quote}
+\textit{``I can provide information and answer questions based on the retrieved context. However, I need to clarify that I will be answering within the scope of the provided documents...''}
+\end{quote}
+
+This phenomenon, known as the \textbf{preamble problem}, has two causes:
+
+\begin{enumerate}
+    \item When the user question is placed \emph{before} the context in the prompt, the model begins generating a response before it has read the relevant retrieved information. It defaults to a generic disclaimer.
+    \item Insufficient instruction specificity fails to suppress this behavior.
+\end{enumerate}
+
+\subsection{The Fix}
+
+Two changes were applied simultaneously. First, the prompt order was reversed: the context is provided before the question, exploiting the recency bias of transformer models (the last thing read has the strongest influence on generation):
+
+\begin{lstlisting}[style=pythonstyle]
+# Before fix -- question first, context second
+"content": (
+    f"USER QUESTION:\n{question}\n\n"
+    f"RETRIEVED CONTEXT:\n{context}\n\n"
+    "Answer based only on the retrieved context."
+),
+
+# After fix -- context first, question last
+"content": (
+    f"RETRIEVED MITRE ATT&CK CONTEXT:\n{context}\n\n"
+    "INSTRUCTIONS:\n"
+    "- Answer based ONLY on the retrieved context above.\n"
+    "- Do NOT add any preamble, conversational filler,\n"
+    "  or introductions.\n"
+    "- Follow the exact answer structure from the system"
+    " prompt.\n\n"
+    f"USER QUESTION:\n{question}"
+),
+\end{lstlisting}
+
+After applying both changes, models immediately produce structured, on-topic answers without any introductory filler text.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.95\textwidth]{screenshots/app6_conversation.png}
+    \caption{Conversation panel showing a properly structured answer with Full Vision section followed by Practical Commands}
+    \label{fig:app6_conversation}
+\end{figure}
+
+\section{Retrieval-Only Fallback}
+
+A fallback function ensures that even if the LLM backend fails to respond, the user receives the raw retrieved \ATTACK{} objects with name, type, tactics, and a text preview. This guarantees system utility even when Ollama is offline or Groq is unreachable.
+
+% ============================================================
+% CHAPTER 8
+% ============================================================
+
+\chapter{Performance Optimization}
+
+\section{Problem}
+
+Local LLM inference can be slower than cloud inference, especially on CPU-only hardware. The model \texttt{llama3.2:3b} is small, but performance still depends on prompt length, output length, and context size.
+
+\section{Optimization Techniques}
+
+\begin{enumerate}
+    \item Reduce \texttt{top\_k} for faster retrieval without quality loss on common queries.
+    \item Reduce \texttt{num\_ctx} to lower memory usage and processing time.
+    \item Reduce \texttt{max\_tokens} to shorten generation time for simpler questions.
+    \item Use object type, tactic, and platform filters to reduce document count.
+    \item Use \texttt{qwen2.5:7b-instruct} for better quality when speed is secondary.
+    \item Use Retrieve ALL mode only for comprehensive queries that need the full knowledge base.
+\end{enumerate}
+
+\begin{table}[H]
+\centering
+\begin{tabular}{ll}
+\toprule
+\textbf{Setting} & \textbf{Fast Mode} \\
+\midrule
+Model & \texttt{llama3.2:3b} \\
+Retrieve ALL & OFF \\
+Top K & 5 \\
+Temperature & 0.1 \\
+Max output tokens & 512 \\
+\texttt{num\_ctx} & 2048 \\
+\bottomrule
+\end{tabular}
+\caption{Recommended fast local settings}
+\end{table}
+
+\begin{table}[H]
+\centering
+\begin{tabular}{ll}
+\toprule
+\textbf{Setting} & \textbf{Balanced Mode} \\
+\midrule
+Model & \texttt{qwen2.5:7b-instruct} \\
+Retrieve ALL & ON \\
+Top K & 20 \\
+Temperature & 0.1 \\
+Max output tokens & 1400 \\
+\texttt{num\_ctx} & 6144 \\
+\bottomrule
+\end{tabular}
+\caption{Recommended balanced local settings}
+\end{table}
+
+% ============================================================
+% CHAPTER 9
+% ============================================================
+
+\chapter{Comparison: Local Ollama vs Groq Cloud API}
+
+\section{Overview}
+
+During the development of \texttt{app6.py}, two generation backends were integrated and tested side by side. This chapter presents a structured comparison and explains why local Ollama is the recommended primary backend for this RAG application in an academic cybersecurity context.
+
+\section{Architecture Comparison}
+
+\begin{table}[H]
+\centering
+\begin{tabularx}{\textwidth}{lXX}
+\toprule
+\textbf{Aspect} & \textbf{Local Ollama} & \textbf{Groq Cloud API} \\
+\midrule
+Execution location & Local machine & Groq cloud servers \\
+Internet required & No & Yes (mandatory) \\
+Data leaves machine & Never & Always \\
+API key required & No & Yes \\
+Usage cost & Always free & Free tier with rate limits \\
+Rate limiting & None & Yes (req/min and token/day) \\
+HTTP payload limit & None & Strict ingress limit \\
+Model availability & Permanent (disk storage) & Subject to deprecation \\
+Context window & Configurable (up to 131K) & Varies, strictly enforced \\
+Offline capability & Full & None \\
+\bottomrule
+\end{tabularx}
+\caption{Architecture comparison: local Ollama vs Groq cloud API}
+\label{tab:arch_compare}
+\end{table}
+
+\section{Context Capacity -- The Critical Difference}
+
+The most fundamental difference for this specific RAG application is context capacity. When the chatbot operates in Retrieve ALL mode, it scrolls all 4,370 documents and produces approximately 5.7 million characters of context.
+
+\begin{table}[H]
+\centering
+\begin{tabular}{llll}
+\toprule
+\textbf{Backend} & \textbf{Context Received} & \textbf{Percentage of Full Context} & \textbf{Reason} \\
+\midrule
+Local Ollama & 5,786,681 characters & 100\% & No HTTP limit \\
+Groq API & 6,000 characters & 0.1\% & 413 Payload Too Large \\
+\bottomrule
+\end{tabular}
+\caption{Context capacity comparison in Retrieve ALL mode}
+\label{tab:context_compare}
+\end{table}
+
+When using Groq, the model receives only 0.1\% of the available \ATTACK{} knowledge base. Local Ollama receives the complete retrieved context. This is the single most important factor in answer quality for this application: \textbf{more context means fewer hallucinations and more accurate citations}.
+
+\section{Performance Comparison}
+
+\begin{table}[H]
+\centering
+\begin{tabularx}{\textwidth}{lXX}
+\toprule
+\textbf{Metric} & \textbf{Local Ollama (llama3.2:3b)} & \textbf{Groq (llama-3.3-70b)} \\
+\midrule
+First token latency & 2--5 seconds (CPU-bound) & $<$ 1 second \\
+Full response time & 15--60 seconds & 3--8 seconds \\
+Works offline & Yes & No \\
+Model parameters & 3 billion & 70 billion \\
+Context received & Full 5.7M chars & 6K chars (0.1\%) \\
+Answer depth & Good & Very good \\
+Hallucination risk & Low (full context) & Higher (truncated context) \\
+\bottomrule
+\end{tabularx}
+\caption{Performance and quality comparison}
+\label{tab:perf_compare}
+\end{table}
+
+\section{Model Deprecation Risk}
+
+During this project, all four initially selected Groq models had to be replaced because they were decommissioned. This is a recurring operational risk with cloud APIs:
+
+\begin{itemize}
+    \item The application must be monitored for API changes;
+    \item Model IDs must be updated whenever the provider deprecates a model;
+    \item Integration tests must be re-run after each model update;
+    \item If model names are hard-coded in production systems, users experience sudden failures.
+\end{itemize}
+
+Local Ollama models are stored permanently on disk. The model pulled with \texttt{ollama pull llama3.2:3b} will function identically with no modifications indefinitely.
+
+\section{Data Privacy Analysis}
+
+For a cybersecurity RAG application processing sensitive attack intelligence, data privacy is a critical concern. Every query sent to the Groq API transmits:
+
+\begin{itemize}
+    \item the user's question, which may reference specific internal systems, IP ranges, or organizational assets;
+    \item the retrieved \ATTACK{} context, which may be combined with details about specific vulnerabilities or tools under investigation.
+\end{itemize}
+
+With local Ollama, all data remains inside the local machine. No query data, no retrieved documents, and no generated answers ever cross a network boundary. This is a fundamental requirement for enterprise security operations environments.
+
+\section{Answer Quality Comparison}
+
+The following comparison was performed using the query: \textit{``How to test T1110 Brute Force on SSH using Hydra? Show practical commands.''}
+
+\begin{table}[H]
+\centering
+\begin{tabularx}{\textwidth}{lXX}
+\toprule
+\textbf{Quality Criterion} & \textbf{Local Ollama (llama3.2:3b)} & \textbf{Groq (llama-3.3-70b)} \\
+\midrule
+Full Vision completeness & Good (limited by 3B params) & Excellent (70B params) \\
+ATT\&CK ID citation accuracy & Excellent & Excellent \\
+Practical command detail & Good & Very detailed \\
+Context fidelity & Excellent (full 5.7M chars) & Reduced (6K chars only) \\
+Hallucination risk & Low & Moderate to high \\
+Answer structure adherence & Good after prompt fix & Excellent \\
+Response time & 20--45 seconds & 3--7 seconds \\
+\bottomrule
+\end{tabularx}
+\caption{Answer quality comparison for Brute Force SSH query}
+\label{tab:quality_compare}
+\end{table}
+
+Despite having 23 times fewer parameters, local \texttt{llama3.2:3b} achieves better \textbf{context fidelity} because it receives the complete knowledge base, while the 70B Groq model is forced to answer from 0.1\% of the context.
+
+\section{Why Local Ollama is the Recommended Backend}
+
+For the primary use case of this application -- comprehensive, grounded \ATTACK{} question answering in an academic cybersecurity lab -- local Ollama is superior for seven reasons:
+
+\begin{enumerate}
+    \item \textbf{Complete context fidelity.} Local Ollama receives the full retrieved collection without any truncation. Groq's hard payload limit discards 99.9\% of the available context before the model even begins reading.
+
+    \item \textbf{Data privacy.} In cybersecurity environments, queries may contain sensitive organizational details, vulnerability information, or investigation context. With local Ollama, nothing ever leaves the machine.
+
+    \item \textbf{Long-term stability.} Local models do not get deprecated. The same \texttt{llama3.2:3b} model works identically one year later without any code changes.
+
+    \item \textbf{No rate limits.} Local Ollama can be queried continuously without per-minute or per-day throttling. Groq enforces rate limits that can block automated analysis workflows.
+
+    \item \textbf{Zero cost at scale.} Local Ollama is free regardless of query volume. Groq's free tier has hard monthly limits beyond which billing begins.
+
+    \item \textbf{Full offline capability.} The entire pipeline -- embedding, retrieval, and generation -- operates without an internet connection. This is critical for air-gapped security labs or field deployments.
+
+    \item \textbf{Lower hallucination risk.} Because local Ollama receives the complete retrieved context, the model is more strongly grounded in actual \ATTACK{} documents. This directly reduces the risk of fabricated technique names, incorrect ATT\&CK IDs, or invented tool descriptions.
+\end{enumerate}
+
+Groq remains useful for one specific scenario: rapid exploratory queries on a small, hand-selected context where sub-second response speed is the priority. However, for the primary goal of this project -- comprehensive, accurate, privacy-preserving \ATTACK{} question answering with full collection retrieval -- local Ollama is the clearly superior choice.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.95\textwidth]{screenshots/app6_ollama_answer.png}
+    \caption{Full structured answer from local Ollama showing the Full Vision section followed by Practical Commands, using complete retrieved context}
+    \label{fig:ollama_answer}
+\end{figure}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.95\textwidth]{screenshots/app6_groq_answer.png}
+    \caption{Answer from Groq API using only 6,000 characters of truncated context (0.1\% of full collection)}
+    \label{fig:groq_answer}
+\end{figure}
+
+% ============================================================
+% CHAPTER 10
+% ============================================================
+
+\chapter{Final System Architecture}
+
+\section{Architecture Overview}
+
+The final architecture is fully local except for the initial STIX dataset download and optional Groq API calls.
+
+\begin{lstlisting}[style=bashstyle]
+MITRE ATT&CK STIX JSON
+        |
+        v
+Raw STIX validation & analysis
+        |
+        v
+Enriched JSONL corpus (4,370 documents)
+        |
+        v
+FastEmbed BAAI/bge-small-en-v1.5 (384-dim)
+        |
+        v
+Qdrant local vector database
+        |
+        v
+Gradio professional dark-mode UI (app6.py)
+        |
+   _____|_____
+  |           |
+  v           v
+Ollama      Groq API
+(local)     (cloud, optional)
+llama3.2:3b   llama-3.3-70b
+qwen2.5:7b    qwen3-32b
+\end{lstlisting}
+
+\section{Final Project Files}
+
+\begin{lstlisting}[style=bashstyle]
+stage/
+|-- attack-stix-data/
+|   |-- enterprise-attack/
+|       |-- enterprise-attack.json
+|-- rag_output/
+|   |-- enterprise_attack_rag_corpus.jsonl
+|   |-- enterprise_attack_rag_stats.json
+|-- vector_store/
+|   |-- qdrant_attack_enterprise/
+|-- hf_cache/
+|-- fastembed_cache/
+|-- screenshots/
+|   |-- app6_main_interface.png
+|   |-- app6_layout.png
+|   |-- app6_settings_panel.png
+|   |-- app6_conversation.png
+|   |-- app6_retrieved_table.png
+|   |-- app6_model_dropdown.png
+|   |-- app6_ollama_answer.png
+|   |-- app6_groq_answer.png
+|-- build_attack_rag_corpus.py
+|-- analyze_rag_corpus.py
+|-- vector.py
+|-- app.py
+|-- app2.py
+|-- app3.py
+|-- app4.py
+|-- app5.py
+|-- app6.py
+\end{lstlisting}
+
+\section{Launching the Application}
+
+\begin{lstlisting}[style=bashstyle]
+# Terminal 1: start Ollama
+ollama serve
+
+# Terminal 2: launch the application
+python app6.py
+\end{lstlisting}
+
+The local interface is available at \texttt{http://127.0.0.1:7860}. No Groq API key is required when using local Ollama models only.
+
+\section{System Requirements}
+
+\begin{table}[H]
+\centering
+\begin{tabular}{ll}
+\toprule
+\textbf{Component} & \textbf{Requirement} \\
+\midrule
+Python & 3.10 or later \\
+RAM & 8 GB minimum, 16 GB recommended \\
+Disk space & Approximately 10 GB (models and vector store) \\
+GPU & Optional (CPU inference is supported) \\
+OS & Windows, Linux, or macOS \\
+Ollama & Latest version \\
+\bottomrule
+\end{tabular}
+\caption{System requirements for the final application}
+\end{table}
+
+% ============================================================
+% GENERAL CONCLUSION
+% ============================================================
+
+\chapter*{General Conclusion}
+\addcontentsline{toc}{chapter}{General Conclusion}
+
+This project successfully built a complete, professional, and locally-operating RAG chatbot for the \ATTACK{} Enterprise framework. The development was structured across ten phases, from raw STIX data acquisition through professional UI design, cloud API integration, and rigorous comparative analysis.
+
+The raw \ATTACK{} STIX graph containing 25,843 objects was downloaded, validated, and transformed into an enriched JSONL corpus of 4,370 active documents covering all object types including attack-patterns, malware, tools, intrusion sets, campaigns, analytics, detection strategies, and tactics. The corpus was embedded with the \texttt{BAAI/bge-small-en-v1.5} model and stored in a Qdrant local vector database. Retrieval tests confirmed high semantic accuracy, returning precisely the most relevant \ATTACK{} entities for diverse cybersecurity queries.
+
+Six progressive Gradio interface versions were developed. The final version, \texttt{app6.py}, features a professional zinc-black dark mode design, a mandatory \textit{Full Vision \& Explanation} answer structure, offensive and defensive intent detection, an anti-preamble prompt ordering technique, and a unified AI model selector supporting both local and cloud backends.
+
+Two generation backends were integrated and compared in depth. The Groq cloud API offers faster token generation and access to larger models, but imposes critical limitations: a hard 6,000-character payload cap that provides the model with only 0.1\% of the available \ATTACK{} context, model deprecation risk requiring frequent maintenance, internet dependency making offline operation impossible, and data privacy concerns inherent to any cloud API. Local Ollama, by contrast, receives the full 5.7-million-character context without truncation, operates indefinitely without deprecation, functions entirely offline, costs nothing, and keeps all sensitive query and intelligence data within the local machine boundary. For the core mission of this application -- comprehensive, accurate, and privacy-preserving \ATTACK{} question answering in an academic cybersecurity lab -- local Ollama is the clearly superior and recommended backend.
+
+Future directions include answer evaluation with automated metrics, citation-level source attribution, hybrid BM25 and dense retrieval, learned reranking, multi-turn conversation memory management, and deployment as a dedicated local cybersecurity analyst assistant for penetration testing training programs.
+
+% ============================================================
+% REFERENCES
+% ============================================================
+
+\begin{thebibliography}{9}
+
+\bibitem{mitreattack}
+MITRE \ATTACK{}.
+\textit{\ATTACK{} Framework}.
+Available at: \url{https://attack.mitre.org/}
+
+\bibitem{attackstix}
+MITRE \ATTACK{}.
+\textit{attack-stix-data GitHub Repository}.
+Available at: \url{https://github.com/mitre-attack/attack-stix-data}
+
+\bibitem{stix}
+OASIS.
+\textit{Structured Threat Information Expression}.
+Available at: \url{https://oasis-open.github.io/cti-documentation/}
+
+\bibitem{qdrant}
+Qdrant.
+\textit{Qdrant Vector Database Documentation}.
+Available at: \url{https://qdrant.tech/documentation/}
+
+\bibitem{fastembed}
+Qdrant.
+\textit{FastEmbed Documentation}.
+Available at: \url{https://qdrant.github.io/fastembed/}
+
+\bibitem{gradio}
+Gradio.
+\textit{Gradio Documentation}.
+Available at: \url{https://www.gradio.app/docs}
+
+\bibitem{ollama}
+Ollama.
+\textit{Ollama Documentation}.
+Available at: \url{https://ollama.com/}
+
+\bibitem{groq}
+Groq.
+\textit{Groq API Documentation and Deprecation Notices}.
+Available at: \url{https://console.groq.com/docs/}
+
+\bibitem{rag}
+Lewis, P. et al.
+\textit{Retrieval-Augmented Generation for Knowledge-Intensive NLP Tasks}.
+NeurIPS, 2020.
+Available at: \url{https://arxiv.org/abs/2005.11401}
+
+\bibitem{bge}
+BAAI.
+\textit{BGE-Small-EN-v1.5 Embedding Model}.
+Available at: \url{https://huggingface.co/BAAI/bge-small-en-v1.5}
+
+\end{thebibliography}
+
+\end{document}
