@@ -1,6 +1,6 @@
 # MITRE ATT&CK RAG Assistant
 
-![MITRE ATT&CK RAG Assistant Banner](assets/banner.png)
+![MITRE ATT&CK RAG Assistant Banner](arch.png)
 
 A cybersecurity-focused Retrieval-Augmented Generation (RAG) assistant designed to help users explore, understand, and query the MITRE ATT&CK framework through a conversational interface.
 
