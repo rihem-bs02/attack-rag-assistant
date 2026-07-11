@@ -233,7 +233,7 @@ http://127.0.0.1:7860
 ```text
 attack-rag-assistant/
 │
-├── app6.py
+├── app.py
 ├── .env
 ├── README.md
 ├── assets/
