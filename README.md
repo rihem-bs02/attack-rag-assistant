@@ -10,7 +10,7 @@ The assistant combines semantic search, vector databases, and Large Language Mod
 
 ## Demo
 
-![Application Interface](assets/demo-interface.png)
+![Application Interface](demo.png)
 
 Example questions:
 
